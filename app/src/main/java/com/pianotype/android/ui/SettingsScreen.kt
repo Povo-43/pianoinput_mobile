@@ -185,32 +185,6 @@ fun SettingsScreen(context: Context, onOpenImeSettings: () -> Unit) {
             }
 
             // ---------------- hand split ----------------
-            Text("左手/右手の境界 (MIDI note, C4=60)", style = MaterialTheme.typography.titleMedium)
-            OutlinedTextField(
-                value = config.handSplit.toString(),
-                onValueChange = {
-                    it.toIntOrNull()?.let { n ->
-                        if (n in 0..127) {
-                            config = config.copy(handSplit = n)
-                            ConfigRepository.update(context, config)
-                        }
-                    }
-                },
-                singleLine = true,
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                modifier = Modifier.fillMaxWidth()
-            )
-
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Checkbox(
-                    checked = config.requireBothHands,
-                    onCheckedChange = {
-                        config = config.copy(requireBothHands = it)
-                        ConfigRepository.update(context, config)
-                    }
-                )
-                Text("両手で1つ以上の鍵を押すことを必須にする")
-            }
 
             Divider()
 
@@ -227,7 +201,7 @@ fun SettingsScreen(context: Context, onOpenImeSettings: () -> Unit) {
                     Text("追加")
                 }
             }
-
+            
             if (config.mapping.isEmpty()) {
                 Text("(未登録)", style = MaterialTheme.typography.bodyMedium)
             } else {
@@ -255,7 +229,7 @@ fun SettingsScreen(context: Context, onOpenImeSettings: () -> Unit) {
                     }
                 }
             }
-
+            
             Divider()
 
             Button(

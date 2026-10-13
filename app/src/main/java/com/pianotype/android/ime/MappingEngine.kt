@@ -4,8 +4,8 @@ import com.pianotype.android.config.Config
 import com.pianotype.android.config.Mapping
 
 /**
- * PC版 pianotype の run() 内のロジックをそのまま移植。
- * スレッドセーフにしたいので synchronized で保護。
+ * 保持しているノート集合と完全一致するマッピングを探して発火する。
+ * 両手条件などの制約は無し。
  */
 class MappingEngine(
     private val configProvider: () -> Config,
@@ -22,27 +22,25 @@ class MappingEngine(
     fun onNoteOn(note: Int) {
         held.add(note)
         val current = held.sorted()
-        if (current.isNotEmpty() && !emitted.contains(current)) {
-            val mapping = findMapping(configProvider(), current)
-            if (mapping != null) {
-                emitted.add(current)
-                val value = mapping.value
-                when (value.uppercase()) {
-                    "TOGGLE" -> {
-                        enabled = !enabled
-                        shiftArmed = false
-                        onToggle(enabled)
-                    }
-                    "SHIFT" -> if (enabled) {
-                        shiftArmed = true
-                        onShiftArmed()
-                    }
-                    else -> if (enabled) {
-                        val s = shiftArmed
-                        shiftArmed = false
-                        onAction(value, s)
-                    }
-                }
+        if (current.isEmpty() || emitted.contains(current)) return
+
+        val mapping = findMapping(configProvider(), current) ?: return
+        emitted.add(current)
+
+        when (mapping.value.uppercase()) {
+            "TOGGLE" -> {
+                enabled = !enabled
+                shiftArmed = false
+                onToggle(enabled)
+            }
+            "SHIFT" -> if (enabled) {
+                shiftArmed = true
+                onShiftArmed()
+            }
+            else -> if (enabled) {
+                val s = shiftArmed
+                shiftArmed = false
+                onAction(mapping.value, s)
             }
         }
     }
@@ -65,11 +63,6 @@ class MappingEngine(
 
     private fun findMapping(config: Config, heldNotes: List<Int>): Mapping? {
         val heldSet = heldNotes.toSet()
-        return config.mapping.firstOrNull { m ->
-            if (m.keys.toSet() != heldSet) return@firstOrNull false
-            if (config.requireBothHands) {
-                m.keys.any { it < config.handSplit } && m.keys.any { it >= config.handSplit }
-            } else true
-        }
+        return config.mapping.firstOrNull { it.keys.toSet() == heldSet }
     }
 }
