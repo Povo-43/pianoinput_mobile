@@ -4,7 +4,6 @@ import org.tomlj.Toml
 
 object TomlConfig {
 
-    /** PC版 pianotype.toml と互換の TOML をパースする。 */
     fun parse(text: String): Config {
         val result = Toml.parse(text)
         if (result.hasErrors()) {
@@ -12,6 +11,7 @@ object TomlConfig {
             throw IllegalArgumentException("Invalid TOML:\n$msgs")
         }
         val device = result.getString("midi_device")
+        val channel = (result.getLong("midi_channel"))?.toInt()?.takeIf { it in 1..16 }
         val handSplit = (result.getLong("hand_split") ?: 60L).toInt()
         val bothHands = result.getBoolean("require_both_hands") ?: true
 
@@ -28,13 +28,13 @@ object TomlConfig {
                 mappings.add(Mapping(keys, value))
             }
         }
-        return Config(device, handSplit, bothHands, mappings)
+        return Config(device, channel, handSplit, bothHands, mappings)
     }
 
-    /** 逆に Config から TOML 文字列を生成する。 */
     fun serialize(config: Config): String = buildString {
         appendLine("# pianotype Android configuration")
         config.midiDevice?.let { appendLine("midi_device = \"${escape(it)}\"") }
+        config.midiChannel?.let { appendLine("midi_channel = $it") }
         appendLine("hand_split = ${config.handSplit}")
         appendLine("require_both_hands = ${config.requireBothHands}")
         appendLine()

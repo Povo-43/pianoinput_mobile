@@ -15,11 +15,13 @@ sealed class MidiEvent {
 
 /**
  * 指定デバイス（null なら先頭）の MIDI 入力を購読する。
- * Note On/Off のみを MidiEvent に変換して callback に渡す。
+ * channelFilter を指定すると、その MIDI チャンネル (1..16) のみ通す。
+ * null なら全チャンネルを通す。
  */
 class MidiListener(
     context: Context,
     private val deviceSelector: String?,
+    private val channelFilter: Int?,        // 1..16, null = any
     private val callback: (MidiEvent) -> Unit,
 ) : Closeable {
 
@@ -36,18 +38,23 @@ class MidiListener(
             device = dev
             val p = dev.openOutputPort(0) ?: return@openDevice
             port = p
+            val wantChannel = channelFilter?.let { it - 1 }  // 1..16 -> 0..15
             val r = object : MidiReceiver() {
                 override fun onSend(data: ByteArray, offset: Int, count: Int, timestamp: Long) {
                     var i = offset
                     val end = offset + count
                     while (i + 2 < end) {
-                        val status = data[i].toInt() and 0xF0
+                        val status = data[i].toInt() and 0xFF
+                        val type = status and 0xF0
+                        val channel = status and 0x0F
                         val note = data[i + 1].toInt() and 0x7F
                         val vel = data[i + 2].toInt() and 0x7F
-                        if (status == 0x90 && vel > 0) {
-                            callback(MidiEvent.NoteOn(note))
-                        } else if (status == 0x80 || (status == 0x90 && vel == 0)) {
-                            callback(MidiEvent.NoteOff(note))
+                        if (wantChannel == null || channel == wantChannel) {
+                            if (type == 0x90 && vel > 0) {
+                                callback(MidiEvent.NoteOn(note))
+                            } else if (type == 0x80 || (type == 0x90 && vel == 0)) {
+                                callback(MidiEvent.NoteOff(note))
+                            }
                         }
                         i += 3
                     }

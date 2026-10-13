@@ -12,7 +12,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import com.pianotype.android.config.ConfigRepository
 import com.pianotype.android.ui.PianotypeTheme
-import com.pianotype.android.ui.SettingsScreen
+import com.pianotype.android.ui.MainScreen
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -21,7 +21,7 @@ class MainActivity : ComponentActivity() {
         setContent {
             PianotypeTheme {
                 Surface(modifier = Modifier.fillMaxSize(), color = Color.Transparent) {
-                    SettingsScreen(
+                    MainScreen(
                         context = this,
                         onOpenImeSettings = { openImeSettings() },
                     )

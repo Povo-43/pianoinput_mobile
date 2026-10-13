@@ -83,7 +83,7 @@ class PianotypeImeService : InputMethodService() {
 
     private fun restartMidi(cfg: Config) {
         midiListener?.close()
-        midiListener = MidiListener(this, cfg.midiDevice) { event ->
+        midiListener = MidiListener(this, cfg.midiDevice, cfg.midiChannel) { event ->
             val e = engine ?: return@MidiListener
             when (event) {
                 is MidiEvent.NoteOn -> e.onNoteOn(event.note)
