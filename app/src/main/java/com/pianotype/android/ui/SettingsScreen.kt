@@ -1,9 +1,8 @@
 package com.pianotype.android.ui
 
 import android.content.Context
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
@@ -15,6 +14,8 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.pianotype.android.config.Config
@@ -25,6 +26,7 @@ import com.pianotype.android.keyboard.ValueParser
 import com.pianotype.android.midi.MidiDeviceScanner
 import com.pianotype.android.midi.MidiEvent
 import com.pianotype.android.midi.MidiListener
+import kotlinx.coroutines.delay
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -36,11 +38,49 @@ fun SettingsScreen(context: Context, onOpenImeSettings: () -> Unit) {
     var editingIndex by remember { mutableStateOf<Int?>(null) }
     var statusMsg by remember { mutableStateOf<String?>(null) }
 
-    // config listener
+    // --- MIDI モニター状態 ---
+    var monitorOn by remember { mutableStateOf(false) }
+    var heldNotes by remember { mutableStateOf<List<Int>>(emptyList()) }
+    var log by remember { mutableStateOf<List<String>>(emptyList()) }
+    var monitorListener by remember { mutableStateOf<MidiListener?>(null) }
+
     DisposableEffect(Unit) {
         val l: (Config) -> Unit = { config = it }
         ConfigRepository.addListener(l)
         onDispose { ConfigRepository.removeListener(l) }
+    }
+
+    // モニターの開始/停止
+    LaunchedEffect(monitorOn, config.midiDevice) {
+        if (monitorOn) {
+            val l = MidiListener(context, config.midiDevice) { ev ->
+                val now = System.currentTimeMillis()
+                when (ev) {
+                    is MidiEvent.NoteOn -> {
+                        if (!heldNotes.contains(ev.note)) {
+                            heldNotes = (heldNotes + ev.note).sorted()
+                        }
+                        log = (log + "ON  ${ev.note}  (chord: ${(heldNotes + ev.note).distinct().sorted().joinToString(",")})")
+                            .takeLast(40)
+                    }
+                    is MidiEvent.NoteOff -> {
+                        heldNotes = heldNotes - ev.note
+                        log = (log + "OFF ${ev.note}").takeLast(40)
+                    }
+                }
+            }.also { it.start() }
+            monitorListener = l
+        } else {
+            monitorListener?.close()
+            monitorListener = null
+            heldNotes = emptyList()
+        }
+    }
+    DisposableEffect(Unit) {
+        onDispose {
+            monitorListener?.close()
+            monitorListener = null
+        }
     }
 
     Scaffold(
@@ -63,7 +103,53 @@ fun SettingsScreen(context: Context, onOpenImeSettings: () -> Unit) {
                 .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            // ---- MIDI device ----
+            // ---------------- MIDI モニター ----------------
+            Card(modifier = Modifier.fillMaxWidth()) {
+                Column(
+                    modifier = Modifier.padding(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text("MIDI モニター", style = MaterialTheme.typography.titleMedium)
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Switch(checked = monitorOn, onCheckedChange = { monitorOn = it })
+                            Spacer(Modifier.width(4.dp))
+                            Text(if (monitorOn) "ON" else "OFF")
+                        }
+                    }
+
+                    Text(
+                        "押されている鍵盤: " +
+                            if (heldNotes.isEmpty()) "(なし)"
+                            else heldNotes.joinToString(", "),
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+
+                    if (log.isNotEmpty()) {
+                        val text = log.reversed().joinToString("\n")
+                        Text(
+                            text = text,
+                            style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(min = 80.dp, max = 220.dp)
+                                .background(Color.Black.copy(alpha = 0.06f))
+                                .padding(8.dp),
+                        )
+                    } else if (monitorOn) {
+                        Text("鍵盤を弾いてください…", style = MaterialTheme.typography.bodySmall)
+                    }
+                    TextButton(onClick = { log = emptyList() }) { Text("ログをクリア") }
+                }
+            }
+
+            Divider()
+
+            // ---------------- MIDI デバイス ----------------
             Text("MIDI 入力デバイス", style = MaterialTheme.typography.titleMedium)
             Row(verticalAlignment = Alignment.CenterVertically) {
                 var expanded by remember { mutableStateOf(false) }
@@ -98,7 +184,7 @@ fun SettingsScreen(context: Context, onOpenImeSettings: () -> Unit) {
                 }
             }
 
-            // ---- hand split ----
+            // ---------------- hand split ----------------
             Text("左手/右手の境界 (MIDI note, C4=60)", style = MaterialTheme.typography.titleMedium)
             OutlinedTextField(
                 value = config.handSplit.toString(),
@@ -115,7 +201,6 @@ fun SettingsScreen(context: Context, onOpenImeSettings: () -> Unit) {
                 modifier = Modifier.fillMaxWidth()
             )
 
-            // ---- require both hands ----
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Checkbox(
                     checked = config.requireBothHands,
@@ -129,19 +214,17 @@ fun SettingsScreen(context: Context, onOpenImeSettings: () -> Unit) {
 
             Divider()
 
-            // ---- mappings ----
+            // ---------------- mappings ----------------
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text("マッピング (${config.mapping.size})", style = MaterialTheme.typography.titleMedium)
-                Row {
-                    TextButton(onClick = { showAddDialog = true }) {
-                        Icon(Icons.Default.Add, contentDescription = null)
-                        Spacer(Modifier.width(4.dp))
-                        Text("追加")
-                    }
+                TextButton(onClick = { showAddDialog = true }) {
+                    Icon(Icons.Default.Add, contentDescription = null)
+                    Spacer(Modifier.width(4.dp))
+                    Text("追加")
                 }
             }
 
@@ -175,24 +258,11 @@ fun SettingsScreen(context: Context, onOpenImeSettings: () -> Unit) {
 
             Divider()
 
-            // ---- TOML paste ----
             Button(
                 onClick = { showTomlDialog = true },
                 modifier = Modifier.fillMaxWidth()
-            ) {
-                Text("TOML を貼り付けて読み込む")
-            }
-            OutlinedButton(
-                onClick = {
-                    // 現在の設定をクリップボードに出す代わりにダイアログへ
-                    showTomlDialog = true
-                },
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text("TOML を表示 / 編集")
-            }
+            ) { Text("TOML を貼り付けて読み込む / 表示") }
 
-            // ---- status ----
             statusMsg?.let {
                 Text(it, color = MaterialTheme.colorScheme.primary)
             }
@@ -254,7 +324,7 @@ private fun TomlEditorDialog(
                 modifier = Modifier
                     .fillMaxWidth()
                     .heightIn(min = 200.dp, max = 400.dp),
-                textStyle = LocalTextStyle.current.copy(fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace)
+                textStyle = LocalTextStyle.current.copy(fontFamily = FontFamily.Monospace)
             )
         },
         confirmButton = { TextButton(onClick = { onApply(text) }) { Text("読み込む") } },
@@ -276,7 +346,6 @@ private fun MappingEditorDialog(
     var capturedNotes by remember { mutableStateOf<List<Int>>(emptyList()) }
     var listener by remember { mutableStateOf<MidiListener?>(null) }
 
-    // capture mode
     LaunchedEffect(capturing) {
         if (capturing) {
             capturedNotes = emptyList()
