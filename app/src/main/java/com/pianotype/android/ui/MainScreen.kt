@@ -9,6 +9,7 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
@@ -20,7 +21,14 @@ private sealed class Page(val label: String, val icon: ImageVector) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun MainScreen(context: Context, onOpenImeSettings: () -> Unit) {
+fun MainScreen(
+    context: Context,
+    themeColor: Color,
+    bgColor: Color,
+    onThemeColorChange: (Color) -> Unit,
+    onBgColorChange: (Color) -> Unit,
+    onOpenImeSettings: () -> Unit,
+) {
     var current by remember { mutableStateOf<Page>(Page.Settings) }
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
@@ -37,24 +45,14 @@ fun MainScreen(context: Context, onOpenImeSettings: () -> Unit) {
                 )
                 HorizontalDivider()
                 Spacer(Modifier.height(8.dp))
-                DrawerItem(
-                    label = Page.Settings.label,
-                    icon = Page.Settings.icon,
-                    selected = current === Page.Settings,
-                    onClick = {
-                        current = Page.Settings
-                        scope.launch { drawerState.close() }
-                    }
-                )
-                DrawerItem(
-                    label = Page.About.label,
-                    icon = Page.About.icon,
-                    selected = current === Page.About,
-                    onClick = {
-                        current = Page.About
-                        scope.launch { drawerState.close() }
-                    }
-                )
+                DrawerItem(Page.Settings.label, Page.Settings.icon, current === Page.Settings) {
+                    current = Page.Settings
+                    scope.launch { drawerState.close() }
+                }
+                DrawerItem(Page.About.label, Page.About.icon, current === Page.About) {
+                    current = Page.About
+                    scope.launch { drawerState.close() }
+                }
             }
         }
     ) {
@@ -88,7 +86,13 @@ fun MainScreen(context: Context, onOpenImeSettings: () -> Unit) {
                     .fillMaxSize()
             ) {
                 when (current) {
-                    is Page.Settings -> SettingsContent(context = context)
+                    is Page.Settings -> SettingsContent(
+                        context = context,
+                        themeColor = themeColor,
+                        bgColor = bgColor,
+                        onThemeColorChange = onThemeColorChange,
+                        onBgColorChange = onBgColorChange,
+                    )
                     is Page.About -> AboutContent()
                 }
             }

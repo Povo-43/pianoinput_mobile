@@ -2,8 +2,11 @@ package com.pianotype.android.ui
 
 import android.content.Context
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
@@ -13,6 +16,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
@@ -26,15 +30,24 @@ import com.pianotype.android.midi.MidiEvent
 import com.pianotype.android.midi.MidiListener
 
 @Composable
-fun SettingsContent(context: Context) {
+fun SettingsContent(
+    context: Context,
+    themeColor: Color,
+    bgColor: Color,
+    onThemeColorChange: (Color) -> Unit,
+    onBgColorChange: (Color) -> Unit,
+) {
     var config by remember { mutableStateOf(ConfigRepository.current) }
     var deviceList by remember { mutableStateOf(MidiDeviceScanner.list(context)) }
     var showTomlDialog by remember { mutableStateOf(false) }
     var showAddDialog by remember { mutableStateOf(false) }
     var editingIndex by remember { mutableStateOf<Int?>(null) }
     var statusMsg by remember { mutableStateOf<String?>(null) }
+    var showResetConfirm by remember { mutableStateOf(false) }
 
-    // --- MIDI モニター状態 ---
+    var showThemePicker by remember { mutableStateOf(false) }
+    var showBgPicker by remember { mutableStateOf(false) }
+
     var monitorOn by remember { mutableStateOf(false) }
     var heldNotes by remember { mutableStateOf<List<Int>>(emptyList()) }
     var log by remember { mutableStateOf<List<String>>(emptyList()) }
@@ -84,6 +97,49 @@ fun SettingsContent(context: Context) {
             .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
+        // ---------------- 見た目 ----------------
+        Text("見た目", style = MaterialTheme.typography.titleMedium)
+
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                modifier = Modifier
+                    .size(36.dp)
+                    .clip(CircleShape)
+                    .background(themeColor)
+                    .border(1.dp, Color.Gray, CircleShape)
+            )
+            Spacer(Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text("テーマカラー")
+                Text(
+                    String.format("#%08X", themeColor.toArgb()),
+                    style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace)
+                )
+            }
+            TextButton(onClick = { showThemePicker = true }) { Text("変更") }
+        }
+
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                modifier = Modifier
+                    .size(36.dp)
+                    .clip(CircleShape)
+                    .background(bgColor)
+                    .border(1.dp, Color.Gray, CircleShape)
+            )
+            Spacer(Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text("背景色")
+                Text(
+                    String.format("#%08X", bgColor.toArgb()),
+                    style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace)
+                )
+            }
+            TextButton(onClick = { showBgPicker = true }) { Text("変更") }
+        }
+
+        Divider()
+
         // ---------------- MIDI モニター ----------------
         Card(modifier = Modifier.fillMaxWidth()) {
             Column(
@@ -111,9 +167,8 @@ fun SettingsContent(context: Context) {
                 )
 
                 if (log.isNotEmpty()) {
-                    val text = log.reversed().joinToString("\n")
                     Text(
-                        text = text,
+                        text = log.reversed().joinToString("\n"),
                         style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
                         modifier = Modifier
                             .fillMaxWidth()
@@ -171,10 +226,7 @@ fun SettingsContent(context: Context) {
             var chExpanded by remember { mutableStateOf(false) }
             val chLabel = config.midiChannel?.let { "CH $it" } ?: "(全チャンネル)"
             OutlinedButton(onClick = { chExpanded = true }) { Text(chLabel) }
-            DropdownMenu(
-                expanded = chExpanded,
-                onDismissRequest = { chExpanded = false }
-            ) {
+            DropdownMenu(expanded = chExpanded, onDismissRequest = { chExpanded = false }) {
                 DropdownMenuItem(
                     text = { Text("(全チャンネル)") },
                     onClick = {
@@ -247,37 +299,59 @@ fun SettingsContent(context: Context) {
             modifier = Modifier.fillMaxWidth()
         ) { Text("TOML を貼り付けて読み込む / 表示") }
 
-        var showResetConfirm by remember { mutableStateOf(false) }
         OutlinedButton(
             onClick = { showResetConfirm = true },
             modifier = Modifier.fillMaxWidth()
-        ) {
-            Text("おすすめ設定に戻す")
-        }
-        if (showResetConfirm) {
-            AlertDialog(
-                onDismissRequest = { showResetConfirm = false },
-                title = { Text("おすすめ設定に戻す") },
-                text = { Text("現在のマッピング (${config.mapping.size}件) はすべて上書きされます。よろしいですか？") },
-                confirmButton = {
-                    TextButton(onClick = {
-                        ConfigRepository.resetToDefault(context)
-                        config = ConfigRepository.current
-                        statusMsg = "おすすめ設定に戻しました"
-                        showResetConfirm = false
-                    }) { Text("戻す") }
-                },
-                dismissButton = {
-                    TextButton(onClick = { showResetConfirm = false }) { Text("キャンセル") }
-                }
-            )
-        }        
-        
+        ) { Text("おすすめ設定に戻す") }
+
         statusMsg?.let {
             Text(it, color = MaterialTheme.colorScheme.primary)
         }
 
         Spacer(Modifier.height(24.dp))
+    }
+
+    if (showThemePicker) {
+        ColorPickerDialog(
+            title = "テーマカラー",
+            initial = themeColor,
+            onDismiss = { showThemePicker = false },
+            onConfirm = {
+                onThemeColorChange(it)
+                showThemePicker = false
+            }
+        )
+    }
+
+    if (showBgPicker) {
+        ColorPickerDialog(
+            title = "背景色",
+            initial = bgColor,
+            onDismiss = { showBgPicker = false },
+            onConfirm = {
+                onBgColorChange(it)
+                showBgPicker = false
+            }
+        )
+    }
+
+    if (showResetConfirm) {
+        AlertDialog(
+            onDismissRequest = { showResetConfirm = false },
+            title = { Text("おすすめ設定に戻す") },
+            text = { Text("現在のマッピング (${config.mapping.size}件) はすべて上書きされます。よろしいですか？") },
+            confirmButton = {
+                TextButton(onClick = {
+                    ConfigRepository.resetToDefault(context)
+                    config = ConfigRepository.current
+                    statusMsg = "おすすめ設定に戻しました"
+                    showResetConfirm = false
+                }) { Text("戻す") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showResetConfirm = false }) { Text("キャンセル") }
+            }
+        )
     }
 
     if (showTomlDialog) {
@@ -314,128 +388,4 @@ fun SettingsContent(context: Context) {
             },
         )
     }
-}
-
-@Composable
-private fun TomlEditorDialog(
-    initial: String,
-    onDismiss: () -> Unit,
-    onApply: (String) -> Unit,
-) {
-    var text by remember { mutableStateOf(initial) }
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("TOML") },
-        text = {
-            OutlinedTextField(
-                value = text,
-                onValueChange = { text = it },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(min = 200.dp, max = 400.dp),
-                textStyle = LocalTextStyle.current.copy(fontFamily = FontFamily.Monospace)
-            )
-        },
-        confirmButton = { TextButton(onClick = { onApply(text) }) { Text("読み込む") } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("キャンセル") } },
-    )
-}
-
-@Composable
-private fun MappingEditorDialog(
-    initial: Mapping,
-    context: Context,
-    config: Config,
-    onDismiss: () -> Unit,
-    onSave: (Mapping) -> Unit,
-) {
-    var keysText by remember { mutableStateOf(initial.keys.joinToString(" ")) }
-    var value by remember { mutableStateOf(initial.value) }
-    var capturing by remember { mutableStateOf(false) }
-    var capturedNotes by remember { mutableStateOf<List<Int>>(emptyList()) }
-    var listener by remember { mutableStateOf<MidiListener?>(null) }
-
-    LaunchedEffect(capturing, config.midiDevice, config.midiChannel) {
-        if (capturing) {
-            capturedNotes = emptyList()
-            val l = MidiListener(context, config.midiDevice, config.midiChannel) { ev ->
-                when (ev) {
-                    is MidiEvent.NoteOn -> {
-                        capturedNotes = (capturedNotes + ev.note).distinct().sorted()
-                    }
-                    is MidiEvent.NoteOff -> {}
-                }
-            }.also { it.start() }
-            listener = l
-        } else {
-            listener?.close()
-            listener = null
-        }
-    }
-
-    DisposableEffect(Unit) {
-        onDispose {
-            listener?.close()
-            listener = null
-        }
-    }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(if (initial.keys.isEmpty()) "マッピング追加" else "マッピング編集") },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("keys (MIDI note 番号、スペース区切り)", style = MaterialTheme.typography.labelMedium)
-                OutlinedTextField(
-                    value = keysText,
-                    onValueChange = { keysText = it },
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true,
-                )
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Button(
-                        onClick = { capturing = !capturing },
-                        colors = if (capturing) ButtonDefaults.buttonColors(
-                            containerColor = MaterialTheme.colorScheme.error
-                        ) else ButtonDefaults.buttonColors()
-                    ) {
-                        Text(if (capturing) "停止" else "MIDI でキャプチャ")
-                    }
-                    if (capturing) {
-                        Spacer(Modifier.width(8.dp))
-                        Text("録音中...")
-                    }
-                }
-                if (capturedNotes.isNotEmpty()) {
-                    Text("取得中: ${capturedNotes.joinToString(", ")}")
-                    TextButton(onClick = {
-                        keysText = capturedNotes.joinToString(" ")
-                    }) { Text("この和音を採用") }
-                }
-                Text("value (文字 / キー名 / TOGGLE / SHIFT / CTRL+F3 など)", style = MaterialTheme.typography.labelMedium)
-                OutlinedTextField(
-                    value = value,
-                    onValueChange = { value = it },
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true,
-                )
-                if (value.isNotEmpty() && !ValueParser.isValid(value)) {
-                    Text("無効な値です", color = MaterialTheme.colorScheme.error)
-                }
-            }
-        },
-        confirmButton = {
-            TextButton(
-                enabled = value.isNotEmpty() && ValueParser.isValid(value),
-                onClick = {
-                    val keys = keysText.split(" ", ",")
-                        .filter { it.isNotBlank() }
-                        .mapNotNull { it.toIntOrNull() }
-                        .sorted()
-                    onSave(Mapping(keys, value))
-                }
-            ) { Text("保存") }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("キャンセル") } },
-    )
 }
