@@ -1,15 +1,17 @@
 package com.pianotype.android.ime
 
+import android.graphics.Color
+import android.graphics.drawable.ColorDrawable
 import android.inputmethodservice.InputMethodService
 import android.os.Handler
 import android.os.Looper
 import android.view.Gravity
 import android.view.KeyEvent
 import android.view.View
+import android.view.ViewGroup
 import android.view.inputmethod.EditorInfo
 import android.widget.LinearLayout
 import android.widget.TextView
-import com.pianotype.android.R
 import com.pianotype.android.config.Config
 import com.pianotype.android.config.ConfigRepository
 import com.pianotype.android.keyboard.OutputAction
@@ -30,6 +32,10 @@ class PianotypeImeService : InputMethodService() {
 
     override fun onCreate() {
         super.onCreate()
+        
+        // ★追加: IMEウィンドウ自体の背景を透明にする（白い帯を消す）
+        window?.window?.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
+
         ConfigRepository.load(this)
         engine = MappingEngine(
             configProvider = { ConfigRepository.current },
@@ -46,25 +52,41 @@ class PianotypeImeService : InputMethodService() {
         ConfigRepository.addListener(configListener)
     }
 
+    /** 画面を覆わない */
+    override fun onEvaluateFullscreenMode(): Boolean = false
+
     override fun onCreateInputView(): View {
         val tv = TextView(this).apply {
             text = "Pianotype: OFF"
-            textSize = 14f
-            setPadding(24, 24, 24, 24)
+            textSize = 13f
+            setPadding(32, 16, 32, 16)
+            gravity = Gravity.CENTER
+            // ★追加: 背景が暗くなるのでテキストを明るいグレーに
+            setTextColor(0xFFAAAAAA.toInt())
         }
         statusView = tv
-        engine?.let { updateStatus(it.isEnabled()) }
-        return LinearLayout(this).apply {
+
+        val row = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER
-            addView(tv)
+            // ★追加: 背景色を指定して白い帯を消す
+            // ダークテーマに合わせる場合は 0xFF1F1F1F（濃いグレー）などを指定
+            // 完全に透明にして後ろのアプリを見せたい場合は Color.TRANSPARENT を指定
+            setBackgroundColor(0xFF1F1F1F.toInt())
+            
+            addView(tv, LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ))
         }
+
+        engine?.let { updateStatus(it.isEnabled()) }
+        return row
     }
 
     override fun onStartInput(attribute: EditorInfo?, restarting: Boolean) {
         super.onStartInput(attribute, restarting)
         engine?.reset()
-        // restart MIDI in case config changed
         restartMidi(ConfigRepository.current)
     }
 
@@ -93,7 +115,11 @@ class PianotypeImeService : InputMethodService() {
     }
 
     private fun updateStatus(enabled: Boolean) {
-        statusView?.text = if (enabled) "Pianotype: ON" else "Pianotype: OFF"
+        statusView?.apply {
+            text = if (enabled) "Pianotype: ON" else "Pianotype: OFF"
+            // 背景が暗いので、ONの時は明るい緑、OFFの時は明るいグレー
+            setTextColor(if (enabled) 0xFF4CAF50.toInt() else 0xFFAAAAAA.toInt())
+        }
     }
 
     private fun handleAction(value: String, shift: Boolean) {
