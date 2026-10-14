@@ -247,6 +247,32 @@ fun SettingsContent(context: Context) {
             modifier = Modifier.fillMaxWidth()
         ) { Text("TOML を貼り付けて読み込む / 表示") }
 
+        var showResetConfirm by remember { mutableStateOf(false) }
+        OutlinedButton(
+            onClick = { showResetConfirm = true },
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("おすすめ設定に戻す")
+        }
+        if (showResetConfirm) {
+            AlertDialog(
+                onDismissRequest = { showResetConfirm = false },
+                title = { Text("おすすめ設定に戻す") },
+                text = { Text("現在のマッピング (${config.mapping.size}件) はすべて上書きされます。よろしいですか？") },
+                confirmButton = {
+                    TextButton(onClick = {
+                        ConfigRepository.resetToDefault(context)
+                        config = ConfigRepository.current
+                        statusMsg = "おすすめ設定に戻しました"
+                        showResetConfirm = false
+                    }) { Text("戻す") }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showResetConfirm = false }) { Text("キャンセル") }
+                }
+            )
+        }        
+        
         statusMsg?.let {
             Text(it, color = MaterialTheme.colorScheme.primary)
         }

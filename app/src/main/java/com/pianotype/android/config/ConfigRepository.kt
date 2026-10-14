@@ -25,8 +25,24 @@ object ConfigRepository {
             runCatching {
                 cached = TomlConfig.parse(f.readText())
             }
+        } else {
+            // 初回起動: おすすめ設定を書き込む
+            runCatching {
+                val def = DefaultConfig.parse()
+                cached = def
+                f.writeText(TomlConfig.serialize(def))
+            }
         }
         notifyListeners()
+    }
+
+    /**
+     * おすすめ設定に戻す。既存の設定は上書きされる。
+     */
+    @Synchronized
+    fun resetToDefault(context: Context) {
+        val def = DefaultConfig.parse()
+        update(context, def)
     }
 
     @Synchronized
