@@ -52,14 +52,12 @@ object ConfigRepository {
         notifyListeners()
     }
 
-    /** TOML テキストを直接ロードして保存。 */
     @Synchronized
     fun loadFromToml(context: Context, toml: String) {
         val parsed = TomlConfig.parse(toml)
         update(context, parsed)
     }
-
-    /** 他PCで編集した内容とマージするのではなく、丸ごと差し替える。 */
+    
     @Synchronized
     fun replaceAll(context: Context, config: Config) {
         update(context, config)

@@ -20,6 +20,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.graphics.toArgb
 import com.pianotype.android.config.Config
 import com.pianotype.android.config.ConfigRepository
 import com.pianotype.android.config.Mapping

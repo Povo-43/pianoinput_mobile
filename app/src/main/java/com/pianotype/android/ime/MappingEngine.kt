@@ -11,12 +11,14 @@ class MappingEngine(
     private val configProvider: () -> Config,
     private val onToggle: (Boolean) -> Unit,
     private val onShiftArmed: () -> Unit,
+    private val onKanaToggle: (Boolean) -> Unit,
     private val onAction: (value: String, shifted: Boolean) -> Unit,
 ) {
     private val held = HashSet<Int>()
     private val emitted = HashSet<List<Int>>()
     private var enabled = false
     private var shiftArmed = false
+    private var kanaEnabled = false
 
     @Synchronized
     fun onNoteOn(note: Int) {
@@ -36,6 +38,11 @@ class MappingEngine(
             "SHIFT" -> if (enabled) {
                 shiftArmed = true
                 onShiftArmed()
+            }
+            "KANA" -> {
+                shiftArmed = false
+                kanaEnabled = !kanaEnabled
+                onKanaToggle(kanaEnabled)
             }
             else -> if (enabled) {
                 val s = shiftArmed
