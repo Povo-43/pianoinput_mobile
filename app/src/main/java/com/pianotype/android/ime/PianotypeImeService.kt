@@ -9,6 +9,7 @@ import android.view.Gravity
 import android.view.KeyEvent
 import android.view.View
 import android.view.inputmethod.EditorInfo
+import android.view.inputmethod.InputConnection
 import android.widget.LinearLayout
 import android.widget.TextView
 import com.pianotype.android.config.Config
@@ -18,29 +19,28 @@ import com.pianotype.android.keyboard.ValueParser
 import com.pianotype.android.midi.MidiEvent
 import com.pianotype.android.midi.MidiListener
 
+
 class PianotypeImeService : InputMethodService() {
 
     private val mainHandler = Handler(Looper.getMainLooper())
+    private val kanaConverter = KanaConverter()
 
     private var midiListener: MidiListener? = null
     private var engine: MappingEngine? = null
     private var statusView: TextView? = null
 
-    // かな漢字変換モードの状態
+    // かな入力モードの状態
     private var kanaEnabled = false
+    private var composingKana = ""
 
     private val configListener: (Config) -> Unit = { cfg ->
-        mainHandler.post {
-            restartMidi(cfg)
-        }
+        mainHandler.post { restartMidi(cfg) }
     }
 
     override fun onCreate() {
         super.onCreate()
 
-        window?.window?.setBackgroundDrawable(
-            ColorDrawable(Color.TRANSPARENT)
-        )
+        window?.window?.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
 
         ConfigRepository.load(this)
 
@@ -48,9 +48,7 @@ class PianotypeImeService : InputMethodService() {
             configProvider = { ConfigRepository.current },
 
             onToggle = { enabled ->
-                mainHandler.post {
-                    updateStatus(enabled)
-                }
+                mainHandler.post { updateStatus(enabled) }
             },
 
             onShiftArmed = {
@@ -62,14 +60,13 @@ class PianotypeImeService : InputMethodService() {
             onKanaToggle = { enabled ->
                 mainHandler.post {
                     kanaEnabled = enabled
+                    if (!enabled) resetComposing()
                     updateStatus(engine?.isEnabled() ?: false)
                 }
             },
 
             onAction = { value, shift ->
-                mainHandler.post {
-                    handleAction(value, shift)
-                }
+                mainHandler.post { handleAction(value, shift) }
             }
         )
 
@@ -92,7 +89,6 @@ class PianotypeImeService : InputMethodService() {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER
             setBackgroundColor(0xFF1F1F1F.toInt())
-
             addView(
                 tv,
                 LinearLayout.LayoutParams(
@@ -102,36 +98,29 @@ class PianotypeImeService : InputMethodService() {
             )
         }
 
-        engine?.let {
-            updateStatus(it.isEnabled())
-        }
+        engine?.let { updateStatus(it.isEnabled()) }
 
         return row
     }
 
-    override fun onStartInput(
-        attribute: EditorInfo?,
-        restarting: Boolean
-    ) {
+    override fun onStartInput(attribute: EditorInfo?, restarting: Boolean) {
         super.onStartInput(attribute, restarting)
-
         engine?.reset()
+        resetComposing()
         restartMidi(ConfigRepository.current)
     }
 
     override fun onFinishInput() {
         super.onFinishInput()
-
         midiListener?.close()
         midiListener = null
+        resetComposing()
     }
 
     override fun onDestroy() {
         ConfigRepository.removeListener(configListener)
-
         midiListener?.close()
         midiListener = null
-
         super.onDestroy()
     }
 
@@ -144,14 +133,11 @@ class PianotypeImeService : InputMethodService() {
             cfg.midiChannel
         ) { event ->
             val e = engine ?: return@MidiListener
-
             when (event) {
                 is MidiEvent.NoteOn -> e.onNoteOn(event.note)
                 is MidiEvent.NoteOff -> e.onNoteOff(event.note)
             }
-        }.also {
-            it.start()
-        }
+        }.also { it.start() }
     }
 
     private fun updateStatus(enabled: Boolean) {
@@ -159,17 +145,10 @@ class PianotypeImeService : InputMethodService() {
             text = buildString {
                 append("Pianotype: ")
                 append(if (enabled) "ON" else "OFF")
-                if (kanaEnabled) {
-                    append(" | KANA")
-                }
+                if (kanaEnabled) append(" | KANA")
             }
-
             setTextColor(
-                if (enabled) {
-                    0xFF4CAF50.toInt()
-                } else {
-                    0xFFAAAAAA.toInt()
-                }
+                if (enabled) 0xFF4CAF50.toInt() else 0xFFAAAAAA.toInt()
             )
         }
     }
@@ -181,54 +160,105 @@ class PianotypeImeService : InputMethodService() {
         when (action) {
             is OutputAction.Text -> {
                 if (kanaEnabled) {
-                    val (InputKanaMode ,KanaValue ,SuggestsKana) = handleKanaInput(action.text)
-                    if(InputKanaMode == "SUGGEST"){
-                        ic.setComposingText(KanaValue, 1)
-                    }
-                    else if(InputKanaMode == "CONFILM"){
-                        ic.CommitText(KanaValue, 1)
-                    }
-                    else if(InputKanaMode == "DELEATE"){
-                        ic.CommitText("", 1)
-                    }
-                    /* バグってたら何もせずにそっとしておくことにしてる！！！ */
+                    handleKanaText(ic, action.text)
                 } else {
-                    // 通常モード
                     ic.commitText(action.text, 1)
                 }
             }
 
             is OutputAction.Key -> {
-                val meta = buildMetaState(
-                    action.ctrl,
-                    action.alt,
-                    action.shift
-                )
-
-                val down = KeyEvent(
-                    0, 0,
-                    KeyEvent.ACTION_DOWN,
-                    action.keyCode,
-                    0,
-                    meta
-                )
-
-                val up = KeyEvent(
-                    0, 0,
-                    KeyEvent.ACTION_UP,
-                    action.keyCode,
-                    0,
-                    meta
-                )
-
-                ic.sendKeyEvent(down)
-                ic.sendKeyEvent(up)
+                if (kanaEnabled && handleKanaKey(action.keyCode)) return
+                sendKeyEvent(ic, action)
             }
         }
     }
 
-    private fun handleKanaInput(text: String) {
-        return Triple("SUGGEST", text)
+    /** KANAモードでの1アクション分の処理 */
+    private fun handleKanaText(ic: InputConnection, text: String) {
+        if (text.isEmpty()) return
+
+        // 制御系の値は先に処理
+        when (text.lowercase()) {
+            "backspace" -> {
+                backspaceComposing(ic)
+                return
+            }
+            "delete" -> {
+                composingKana = ""
+                ic.commitText("", 1)
+                return
+            }
+            "confirm", "commit" -> {
+                commitComposing(ic)
+                return
+            }
+        }
+
+        // 通常のかな入力：文字ごとに変換して composingKana に積む
+        val added = StringBuilder()
+        for (ch in text) {
+            val kana = kanaConverter.input(ch)
+            if (kana.isNotEmpty()) added.append(kana)
+        }
+        if (added.isEmpty()) return
+
+        composingKana += added.toString()
+        ic.setComposingText(composingKana, 1)
+    }
+
+    private fun handleKanaKey(keyCode: Int): Boolean {
+        val ic = currentInputConnection ?: return false
+
+        when (keyCode) {
+            KeyEvent.KEYCODE_ENTER -> {
+                if (composingKana.isNotEmpty()) {
+                    commitComposing(ic)
+                    return true
+                }
+            }
+
+            KeyEvent.KEYCODE_DEL -> {
+                if (composingKana.isNotEmpty()) {
+                    backspaceComposing(ic)
+                    return true
+                }
+            }
+
+            KeyEvent.KEYCODE_SPACE -> {
+                if (composingKana.isNotEmpty()) {
+                    // とりあえず未変換のかなを確定
+                    commitComposing(ic)
+                    return true
+                }
+            }
+        }
+
+        return false
+    }
+
+    private fun commitComposing(ic: InputConnection) {
+        if (composingKana.isEmpty()) return
+        ic.commitText(composingKana, 1)
+        composingKana = ""
+    }
+
+    private fun backspaceComposing(ic: InputConnection) {
+        if (composingKana.isEmpty()) return
+        composingKana = composingKana.dropLast(1)
+        // 空になったら composing を抜ける
+        ic.setComposingText(composingKana, 1)
+    }
+
+    private fun resetComposing() {
+        composingKana = ""
+    }
+
+    private fun sendKeyEvent(ic: InputConnection, action: OutputAction.Key) {
+        val meta = buildMetaState(action.ctrl, action.alt, action.shift)
+        val down = KeyEvent(0, 0, KeyEvent.ACTION_DOWN, action.keyCode, 0, meta)
+        val up = KeyEvent(0, 0, KeyEvent.ACTION_UP, action.keyCode, 0, meta)
+        ic.sendKeyEvent(down)
+        ic.sendKeyEvent(up)
     }
 
     private fun buildMetaState(
@@ -237,11 +267,9 @@ class PianotypeImeService : InputMethodService() {
         shift: Boolean
     ): Int {
         var m = 0
-
         if (ctrl) m = m or KeyEvent.META_CTRL_ON
         if (alt) m = m or KeyEvent.META_ALT_ON
         if (shift) m = m or KeyEvent.META_SHIFT_ON
-
         return m
     }
 }
